@@ -1,0 +1,270 @@
+import tkinter as tk
+from tkinter import messagebox, ttk
+
+# ── Node: basic unit of the tree (a task or project) ──
+class Node:
+    def __init__(self, id, type, name, due_date, tags):
+        # Task data (does not affect the node's position in the tree)
+        self.id       = id          # BST key, defines its position
+        self.type     = type        # "task" or "project"
+        self.name     = name
+        self.due_date = due_date
+        self.tags     = tags
+
+        # Pointers to children (None because the node is born without children)
+        self.left  = None   # subtree with smaller IDs
+        self.right = None   # subtree with larger IDs
+
+
+# ── Tree: holds the root and the main operations (CRUD) ──
+class Tree:
+    def __init__(self):
+        self.root = None   # empty tree at the start
+
+    # Public method: entry point used by the GUI
+    def insert(self, id, type, name, due_date, tags):
+        self.root = self._insert_rec(self.root, id, type, name, due_date, tags)
+
+    # Recursively goes down until it finds the correct spot according to the BST rule
+    def _insert_rec(self, node, id, type, name, due_date, tags):
+        # Base case: empty slot found, the new node is created here
+        if node is None:
+            return Node(id, type, name, due_date, tags)
+
+        if id < node.id:
+            node.left = self._insert_rec(node.left, id, type, name, due_date, tags)
+        elif id > node.id:
+            node.right = self._insert_rec(node.right, id, type, name, due_date, tags)
+        else:
+            # Duplicate ID: a warning is shown instead of silently overwriting
+            messagebox.showwarning("Warning", f"ID {id} already exists.")
+
+        return node  # closes the recursion, reconnecting each level
+
+    # Binary search: at each step it discards half of the remaining branch
+    def search(self, id):
+        return self._search_rec(self.root, id)
+
+    def _search_rec(self, node, id):
+        if node is None:
+            return None            # not found
+        if id == node.id:
+            return node             # found
+        elif id < node.id:
+            return self._search_rec(node.left, id)
+        else:
+            return self._search_rec(node.right, id)
+
+    # Deletes a node by ID; first validates that it exists
+    def delete(self, id):
+        if self._search_rec(self.root, id) is None:
+            messagebox.showerror("Error", f"ID {id} does not exist.")
+            return
+        self.root = self._delete_rec(self.root, id)
+
+    def _delete_rec(self, node, id):
+        if node is None:
+            return None
+
+        # Navigates towards the node to be deleted
+        if id < node.id:
+            node.left = self._delete_rec(node.left, id)
+        elif id > node.id:
+            node.right = self._delete_rec(node.right, id)
+        else:
+            # Node found: there are 3 possible cases depending on its children
+
+            # Case 1: no left child (or none at all) -> replaced by the right child
+            if node.left is None:
+                return node.right
+            # Case 2: no right child -> replaced by the left child
+            if node.right is None:
+                return node.left
+
+            # Case 3: two children -> the inorder successor (the minimum
+            # of the right subtree) is copied, and that successor is then deleted
+            successor = self._minimum_rec(node.right)
+            node.id, node.type, node.name = successor.id, successor.type, successor.name
+            node.due_date, node.tags = successor.due_date, successor.tags
+            node.right = self._delete_rec(node.right, successor.id)
+
+        return node
+
+    # The minimum of a subtree is always at the leftmost end
+    def _minimum_rec(self, node):
+        if node.left is None:
+            return node
+        return self._minimum_rec(node.left)
+
+    # Inorder traversal (left -> root -> right): gives the nodes sorted by ID
+    def list_inorder(self):
+        result = []
+        self._inorder_rec(self.root, result)
+        return result
+
+    def _inorder_rec(self, node, result):
+        if node is None:
+            return
+        self._inorder_rec(node.left, result)
+        result.append(node)
+        self._inorder_rec(node.right, result)
+
+
+# ── Graphical interface (separated from the tree logic) ──
+class App:
+    def __init__(self, root):
+        self.tree = Tree()          # its own tree instance
+        self.root = root
+        self.root.title("Task and Project Management")
+        self.root.state("zoomed")
+        self.root.configure(bg="#c0392b")
+        self._build_interface()
+
+    def _build_interface(self):
+        # ── Left panel: input form ──
+        left_panel = tk.Frame(self.root, bg="#ffffff", width=320)
+        left_panel.pack(side="left", fill="y", padx=10, pady=10)
+        left_panel.pack_propagate(False)   # prevents the frame from shrinking
+
+        tk.Label(left_panel, text="Task Management", font=("Helvetica", 14, "bold"),
+                 bg="#ffffff", fg="#c0392b").pack(pady=15)
+
+        # Fields generated dynamically to avoid repeating code 5 times
+        fields = [
+            ("ID (number):",           "id"),
+            ("Type (task/project):",   "type"),
+            ("Name:",                  "name"),
+            ("Due date (dd/mm/yyyy):", "due_date"),
+            ("Tags:",                  "tags"),
+        ]
+
+        # Dictionary to access each Entry by its key name
+        self.entries = {}
+        for label, key in fields:
+            tk.Label(left_panel, text=label, bg="#ffffff", fg="#555555",
+                     font=("Helvetica", 9)).pack(anchor="w", padx=15, pady=(8, 0))
+            entry = tk.Entry(left_panel, bg="#f0f0f0", fg="#222222",
+                              insertbackground="#c0392b", relief="flat",
+                              font=("Helvetica", 10))
+            entry.pack(fill="x", padx=15, ipady=5)
+            self.entries[key] = entry
+
+        button_frame = tk.Frame(left_panel, bg="#ffffff")
+        button_frame.pack(fill="x", padx=15, pady=15)
+
+        # Buttons generated dynamically: (text, color, associated function)
+        buttons = [
+            ("Add",    "#c0392b", self._add),
+            ("Search", "#b8960c", self._search),
+            ("Delete", "#888888", self._delete),
+            ("Clear",  "#d5d5d5", self._clear_form),
+        ]
+        for text, color, command in buttons:
+            tk.Button(button_frame, text=text, bg=color, fg="#ffffff",
+                      font=("Helvetica", 10, "bold"), relief="flat",
+                      cursor="hand2", command=command).pack(fill="x", pady=3, ipady=6)
+
+        # ── Right panel: results table ──
+        right_panel = tk.Frame(self.root, bg="#f5f5f5")
+        right_panel.pack(side="right", fill="both", expand=True, padx=10, pady=10)
+
+        tk.Label(right_panel, text="Pending tasks",
+                 font=("Helvetica", 12, "bold"), bg="#f5f5f5", fg="#c0392b").pack(pady=10)
+
+        cols = ("ID", "Type", "Name", "Due date", "Tags")
+        self.table = ttk.Treeview(right_panel, columns=cols, show="headings", height=20)
+
+        # "clam" theme needed to be able to color the headers
+        style = ttk.Style()
+        style.theme_use("clam")
+        style.configure("Treeview", background="#ffffff", foreground="#222222",
+                         fieldbackground="#ffffff", font=("Helvetica", 9))
+        style.configure("Treeview.Heading", background="#c0392b",
+                         foreground="#ffffff", font=("Helvetica", 9, "bold"))
+
+        widths = [50, 80, 200, 120, 150]
+        for col, width in zip(cols, widths):
+            self.table.heading(col, text=col)
+            self.table.column(col, width=width, anchor="center", stretch=True)
+
+        # Scrollbar connected to the table in both directions
+        scroll = ttk.Scrollbar(right_panel, orient="vertical", command=self.table.yview)
+        self.table.configure(yscrollcommand=scroll.set)
+        self.table.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+
+    # Redraws the whole table from the tree's inorder traversal.
+    # Called after every operation to keep the view in sync.
+    def _refresh_table(self):
+        for row in self.table.get_children():
+            self.table.delete(row)
+        for node in self.tree.list_inorder():
+            self.table.insert("", "end", values=(
+                node.id, node.type, node.name, node.due_date, node.tags
+            ))
+
+    def _add(self):
+        # Validates that the ID is an integer before touching the tree
+        try:
+            id = int(self.entries["id"].get())
+        except ValueError:
+            messagebox.showerror("Error", "ID must be an integer.")
+            return
+
+        type     = self.entries["type"].get().strip()
+        name     = self.entries["name"].get().strip()
+        due_date = self.entries["due_date"].get().strip()
+        tags     = self.entries["tags"].get().strip()
+
+        # The name is required
+        if not name:
+            messagebox.showerror("Error", "Name is required.")
+            return
+
+        self.tree.insert(id, type, name, due_date, tags)
+        self._refresh_table()
+        self._clear_form()
+
+    def _search(self):
+        try:
+            id = int(self.entries["id"].get())
+        except ValueError:
+            messagebox.showerror("Error", "ID must be an integer.")
+            return
+
+        result = self.tree.search(id)
+        if result:
+            # Shows only the found node, clearing the rest of the table
+            for row in self.table.get_children():
+                self.table.delete(row)
+            self.table.insert("", "end", values=(
+                result.id, result.type, result.name,
+                result.due_date, result.tags
+            ))
+        else:
+            messagebox.showinfo("Search", f"No item was found with ID {id}.")
+
+    def _delete(self):
+        try:
+            id = int(self.entries["id"].get())
+        except ValueError:
+            messagebox.showerror("Error", "ID must be an integer.")
+            return
+
+        # tree.delete() already validates whether the ID exists and warns if not
+        self.tree.delete(id)
+        self._refresh_table()
+        self._clear_form()
+
+    def _clear_form(self):
+        # Clears all text fields and refreshes the table
+        for entry in self.entries.values():
+            entry.delete(0, tk.END)
+        self._refresh_table()
+
+
+# Entry point: only runs if the file is executed directly
+if __name__ == "__main__":
+    root = tk.Tk()
+    app  = App(root)
+    root.mainloop()
